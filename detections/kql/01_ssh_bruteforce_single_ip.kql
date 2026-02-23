@@ -1,0 +1,21 @@
+// Title: SSH Brute Force From Single Source IP
+// Purpose: Detect high volume failed SSH logins from one IP in a short time window.
+// Data Source: Syslog (Linux), Facility auth/authpriv.
+// Tuning:
+//  - Adjust timeWindow (default 30m)
+//  - Adjust thresholdFailures (default 10)
+// False Positives:
+//  - Legit admin fat-fingering password repeatedly (rare on internet-exposed VM)
+
+let timeWindow = 30m;
+let thresholdFailures = 10;
+
+Syslog
+| where Facility in ("auth","authpriv")
+| where SyslogMessage has_any ("Failed password", "authentication failure", "Invalid user")
+| where TimeGenerated > ago(timeWindow)
+| extend SourceIP = extract(@"\b(\d{1,3}\.){3}\d{1,3}\b", 0, SyslogMessage)
+| where isnotempty(SourceIP)
+| summarize Failures=count(), SampleMessages=make_set(SyslogMessage, 3) by SourceIP, bin(TimeGenerated, 5m)
+| where Failures >= thresholdFailures
+| order by Failures desc

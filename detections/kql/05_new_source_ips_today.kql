@@ -1,0 +1,31 @@
+// Title: New Source IPs Observed Today
+// Purpose: Identify source IPs seen today that were not seen in the previous baseline period.
+// Data Source: Syslog (Linux), Facility auth/authpriv.
+// Tuning:
+//  - Adjust baselineWindow (default 7d)
+//  - Adjust lookbackWindow (default 24h)
+// False Positives:
+//  - Internet-exposed hosts naturally see lots of "new IPs" (use as enrichment / triage aid)
+
+let baselineWindow = 7d;
+let lookbackWindow = 24h;
+
+let Baseline =
+    Syslog
+    | where Facility in ("auth","authpriv")
+    | where TimeGenerated between (ago(baselineWindow) .. ago(lookbackWindow))
+    | extend SourceIP = extract(@"\b(\d{1,3}\.){3}\d{1,3}\b", 0, SyslogMessage)
+    | where isnotempty(SourceIP)
+    | summarize by SourceIP;
+
+let Recent =
+    Syslog
+    | where Facility in ("auth","authpriv")
+    | where TimeGenerated > ago(lookbackWindow)
+    | extend SourceIP = extract(@"\b(\d{1,3}\.){3}\d{1,3}\b", 0, SyslogMessage)
+    | where isnotempty(SourceIP)
+    | summarize Attempts=count(), SampleMessages=make_set(SyslogMessage, 2) by SourceIP;
+
+Recent
+| join kind=leftanti Baseline on SourceIP
+| order by Attempts desc

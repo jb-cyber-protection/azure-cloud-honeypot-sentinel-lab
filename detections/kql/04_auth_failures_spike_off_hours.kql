@@ -1,0 +1,21 @@
+// Title: Off-Hours Spike in Authentication Failures
+// Purpose: Detect unusual spikes in failed auth attempts during off-hours.
+// Data Source: Syslog (Linux), Facility auth/authpriv.
+// Tuning:
+//  - Adjust spikeThreshold (default 25)
+//  - Adjust offHours definition (default 00:00–05:00 UTC)
+// False Positives:
+//  - If your VM timezone differs, adjust hours accordingly
+
+let timeWindow = 24h;
+let spikeThreshold = 25;
+
+Syslog
+| where Facility in ("auth","authpriv")
+| where TimeGenerated > ago(timeWindow)
+| where SyslogMessage has_any ("Failed password", "authentication failure", "Invalid user")
+| extend Hour = datetime_part("Hour", TimeGenerated)
+| where Hour between (0 .. 5)
+| summarize Failures=count() by bin(TimeGenerated, 1h)
+| where Failures >= spikeThreshold
+| order by TimeGenerated desc

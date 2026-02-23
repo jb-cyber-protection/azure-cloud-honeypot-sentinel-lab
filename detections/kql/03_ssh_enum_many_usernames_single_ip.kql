@@ -1,0 +1,26 @@
+// Title: SSH Username Enumeration (Single IP Trying Many Usernames)
+// Purpose: Detect a source IP trying many usernames (enumeration / brute force dictionary).
+// Data Source: Syslog (Linux), Facility auth/authpriv.
+// Tuning:
+//  - Adjust timeWindow (default 1h)
+//  - Adjust thresholdUsers (default 8)
+// False Positives:
+//  - Pen-test from your own IP (should not happen in this lab)
+
+let timeWindow = 1h;
+let thresholdUsers = 8;
+
+Syslog
+| where Facility in ("auth","authpriv")
+| where TimeGenerated > ago(timeWindow)
+| where SyslogMessage has_any ("Failed password", "Invalid user")
+| extend SourceIP = extract(@"\b(\d{1,3}\.){3}\d{1,3}\b", 0, SyslogMessage)
+| extend Username =
+    coalesce(
+        extract(@"Invalid user\s+(\S+)", 1, SyslogMessage),
+        extract(@"Failed password for\s+(invalid user\s+)?(\S+)", 2, SyslogMessage)
+    )
+| where isnotempty(SourceIP) and isnotempty(Username)
+| summarize DistinctUsers=dcount(Username), Users=make_set(Username, 25), Attempts=count() by SourceIP
+| where DistinctUsers >= thresholdUsers
+| order by DistinctUsers desc, Attempts desc
